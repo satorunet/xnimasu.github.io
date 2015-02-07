@@ -1,0 +1,46 @@
+.layerTool {
+  background: #ccc;
+  padding: 2px;
+  font-size: 9pt;
+}
+
+.layer {
+  position: absolute;
+}
+
+.layerPreview {
+  margin: 2px;
+  background-image: url(http://open2ch.net/image/oekaki/background.png);
+  border: solid 2px #666;
+}
+
+.pattern {
+  vertical-align: middle;
+  border: 1px solid #000;
+}
+
+.selected {
+  border: solid 2px #F00;
+}
+
+.layerDisplayNone {
+  display: none;
+}
+
+.previewDisplayNone {
+  opacity: 0.3;
+}
+
+.pict {
+	display: none;
+}
+
+.mojiInput {
+  margin: 0;
+  font: 0.8em;
+}
+
+.toolIcon {
+	width: 18px;
+	height: 18px;
+}
