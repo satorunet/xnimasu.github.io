@@ -81,7 +81,6 @@ var PENCIL_SIZE = 20;
 var MAX_LAYER = PC ? 12 : 4;
 var MAX_BGCOLOR_GRAD = 10;
 var MOVE_POINT_R = 100;
-var ICON_BASE_URL = 'https://googledrive.com/host/0B1BW1N6rqpWFZkRzMVNvTTE1dlE/';
 
 var ls = {
 	version: loadStorage(LS_KEY.VERSION, false) || DEF_VERSION,
@@ -133,16 +132,16 @@ var tools = [TOOL.MARKER, TOOL.ERASER, TOOL.SPOIT];
 var redoList = [];
 var icons = {
 	markerIcon: {img: $('label[for=kaku]')},
-	pathIcon: {file: ICON_BASE_URL + 'path2.png'},
-	figureIcon: {file: ICON_BASE_URL + 'figure.png'},
-	effectIcon: {file: ICON_BASE_URL + 'water.png'},
+	pathIcon: {file: ICON_URL + 'path2.png'},
+	figureIcon: {file: ICON_URL + 'figure.png'},
+	effectIcon: {file: ICON_URL + 'water.png'},
 	eraserIcon: {img: $('label[for=kesu]')},
 	spoitIcon: {img: $('label[for=spoit]')},
 	fillIcon: {file: 'http://image.open2ch.net/image/oekaki/nuri.png'},
-	mojiIcon: {file: ICON_BASE_URL + 'moji.png'},
-	figureIcon: {file: ICON_BASE_URL + 'figure.png'},
-	pictIcon: {file: ICON_BASE_URL + 'pict.png'},
-	settingsIcon: {file: ICON_BASE_URL + 'settings.png'}
+	mojiIcon: {file: ICON_URL + 'moji.png'},
+	figureIcon: {file: ICON_URL + 'figure.png'},
+	pictIcon: {file: ICON_URL + 'pict.png'},
+	settingsIcon: {file: ICON_URL + 'settings.png'}
 };
 var clearImageData;
 var pict = {};
