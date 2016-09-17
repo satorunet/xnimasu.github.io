@@ -75,3 +75,8 @@
 	box-shadow: 0 2px 2px rgba(0, 0, 0 , 0.5);
 	cursor: move;
 }
+
+.errmsg {
+	font-size: 2;
+	color: red;
+}

@@ -1791,6 +1791,64 @@ function setEvent() {
 			}
 			sketch.context.fillRect(0, 0, canvas.w, canvas.h);
 		}
+		
+		handleDroppedFile = function(event, _files) {
+			if (!window.FileReader) {
+					alert("File APIがサポートされていないブラウザなので、imgurl自動変換は使えないようです。(推奨ブラウザchrome)");
+					return false;
+			}
+			$_this = $(this);
+			$_this.trigger("uploading");
+			var files = _files ? _files : event.originalEvent.dataTransfer.files;
+			uploadImgur(files, 0);
+			cancelEvent(event);
+			return false;
+
+			function uploadImgur(files, targetNum) {
+				var msgEl = $(".uploadingMessage");
+				var clientIDList = ['ed3688de8608b9d', '748d59c92850044', '34644a43024038f', '0eded37ec44c993'];
+				$.each(files, function(index, file) {
+						var fileReader = new FileReader();
+						fileReader.onload = function(e) {
+								e.preventDefault();
+								var data = e.target.result;
+								data = new String(data).replace(/^[^,]+;base64,/, "");
+								$.ajax({
+										dataType: 'json',
+										headers: {
+												"Authorization": 'Client-ID ' + clientIDList[targetNum]
+										},
+										url: "https://api.imgur.com/3/image.json",
+										type: "POST",
+										data: {
+												image: data
+										},
+										success: function(res) {
+											console.log(res);
+											var dhash = res.data.deletehash;
+											var link = res.data.link;
+											$_this.trigger("uploadComplete", [link, dhash]);
+										},
+										error: function(res) {
+											var resObj = JSON.parse(res.responseText);
+											console.log(resObj);
+											msgEl.append($('<div>', {class: 'errmsg', text: resObj.data.error}));
+											if (clientIDList.length > ++targetNum) {
+												msgEl.append($('<div>', {class: 'errmsg', text: '別のアップロード先に切り替えます。'}));
+												uploadImgur(files, ++targetNum);
+											} else {
+												msgEl.append($('<div>', {class: 'errmsg', text: 'アップロードできませんでした。'}));
+											}
+										}
+								});
+						}
+						fileReader.readAsDataURL(file);
+				});
+			}
+		}
+		$("[name=MESSAGE]").unbind("drop")
+		$("[name=MESSAGE]").bind("drop", handleDroppedFile);
+		
 	}
 
 	function setKeyDownEvent() {
