@@ -7,7 +7,8 @@ var LS_KEY = {
 	MODE: LS_KEY_PREFIX + 'mode',
 	FONT: LS_KEY_PREFIX + 'font',
 	PICT_MODE: LS_KEY_PREFIX + 'pictMode',
-	CORRECT_LV: LS_KEY_PREFIX + 'correctLv'
+	CORRECT_LV: LS_KEY_PREFIX + 'correctLv',
+	GUIDE: LS_KEY_PREFIX + 'guide'
 }
 var DEF_VERSION = '0.0.0';
 var DEF_MODE = MODE.M;
@@ -15,6 +16,7 @@ var DEF_FONT = [];
 var DEF_FONT_NUM = 5;
 var DEF_PICT_MODE = true;
 var DEF_CORRECT_LV = 0;
+var DEF_GUIDE = true;
 var TOOL = {
 	MARKER: 'marker',
 	CUSTOM: 'custom',
@@ -89,8 +91,9 @@ var ls = {
 	version: loadStorage(LS_KEY.VERSION, false) || DEF_VERSION,
 	mode: loadStorage(LS_KEY.MODE, false) || DEF_MODE,
 	font: loadStorage(LS_KEY.FONT, true) || DEF_FONT,
-	pictMode: loadStorage(LS_KEY.PICT_MODE, false),
-	correctLv: loadStorage(LS_KEY.CORRECT_LV, false) || DEF_CORRECT_LV
+	pictMode: loadStorage(LS_KEY.PICT_MODE, true),
+	correctLv: loadStorage(LS_KEY.CORRECT_LV, false) || DEF_CORRECT_LV,
+	guide: loadStorage(LS_KEY.GUIDE, true)
 }
 var sketch = $('#sketch').sketch();
 var canvas = {
@@ -130,7 +133,10 @@ var canvas = {
 	bgcolor: {el: [], grad: false},
 	w: getCanvasSize().w,
 	h: getCanvasSize().h,
-	scale: 1
+	scale: 1,
+	pointer: {
+		w: sketch.size
+	}
 };
 var tools = [TOOL.MARKER, TOOL.ERASER, TOOL.SPOIT];
 var redoList = [];
@@ -233,6 +239,11 @@ function crUI() {
 		$('#sketch').before(tmpEl);
 		
 		canvas.inputEl = inputEl;
+		canvas.inputCtx = inputEl[0].getContext('2d');
+		canvas.inputCtx.lineWidth = 1;
+		canvas.inputCtx.lineCap = 'round';
+		canvas.inputCtx.lineJoin = 'round';
+		canvas.inputCtx.strokeStyle = '#666';
 		canvas.previewEl = previewEl;
 		canvas.previewCtx = previewEl[0].getContext('2d');
 		canvas.tmpEl = tmpEl;
@@ -501,7 +512,6 @@ function crUI() {
 				ls.pictMode = confirm('画像貼り付け拡張機能をONにしますか？');
 				saveStorage(LS_KEY.PICT_MODE, ls.pictMode, false);
 			}
-			if (ls.pictMode == 'false') ls.pictMode = false;
 		} else {
 			ls.pictMode = false;
 			return;
@@ -551,7 +561,14 @@ function crUI() {
 		var modeValueList = [MODE.L, MODE.M, MODE.H];
 		var modeTextList = [MODE_NAME.L, MODE_NAME.M, MODE_NAME.H];
 		var modeSelect = crSelectEl('modeSelect', 'モード：', modeValueList, modeTextList, ls.mode);
-		var settingsMenu = $('<div>', {id: 'settingsMenu'}).append(modeSelect);
+
+		if (PC) {
+			if (ls.guide == undefined) ls.guide = DEF_GUIDE; 
+		} else {
+			ls.guide = false;
+		}
+		var guideCheck = crCheckboxEl('guideCheck', 'ポインター表示', ls.guide);
+		var settingsMenu = $('<div>', {id: 'settingsMenu'}).append(modeSelect, " ", PC ? guideCheck : "");
 		$('body').append(settingsMenu);
 	}
 	
@@ -596,6 +613,13 @@ function crUI() {
 
 function clickMenu(beforeTool, afterTool) {
 	commitAction(beforeTool);
+
+	sketch.tool = afterTool;
+	if (afterTool == 'eraser') {
+		$('#psize').val(canvas.eraser.width).trigger('change');
+	} else {
+		$('#psize').val(canvas.marker.width).trigger('change');
+	}
 	
 	switch (afterTool) {
 		case TOOL.PICT:
@@ -629,6 +653,7 @@ function setEvent() {
 				e.pageY = e.originalEvent.targetTouches[0].pageY;
 			}
 			e.preventDefault();
+			showPointer(e);
 			canvas.tools[sketch.tool].onEvent(e);
 		}
 	);
@@ -640,6 +665,8 @@ function setEvent() {
 		e.preventDefault();
 		canvas.tools[sketch.tool].onEvent(e);
 	});
+	canvas.inputEl.bind('mouseleave mouseout touchend touchcancel', function() {canvas.inputCtx.clearRect(0, 0, canvas.w, canvas.h)});
+
 	
 	$('#goBtn').click(function(){changeAction(redoList, canvas.layer.actions)});
 	
@@ -832,7 +859,7 @@ function setEvent() {
 	});
 	
 	$('#modeSelect').change(function() {
-		saveStorage(LS_KEY.MODE, $('#modeSelect').val());
+		saveStorage(LS_KEY.MODE, $(this).val());
 		var modeChangeDialog = $('<div>', {id: 'modeChangeDialog', title: 'モード変更'});
 		modeChangeDialog.append($('<p>', {text: '適用する場合はページをリロードして再度ブックマークレットを起動してください。'}));
 		modeChangeDialog.dialog({
@@ -844,7 +871,11 @@ function setEvent() {
 			}
 		});
 	});
-	
+	$('#guideCheck').change(function() {
+		saveStorage(LS_KEY.GUIDE, $(this).is(':checked'), false);
+		ls.guide = $(this).is(':checked');
+	});
+		
 	canvas.tools.marker = {
 		onEvent: function(e) {
 			switch (e.type) {
@@ -1075,8 +1106,12 @@ function setEvent() {
 		
 		$('#psize').unbind();
 		$('#psize').change(function() {
-			canvas.marker.width = $(this).val();
-			canvas.eraser.width = $(this).val();
+			if (sketch.tool == 'eraser') {
+				canvas.eraser.width = $(this).val();
+			} else {
+				canvas.marker.width = $(this).val();
+			}
+			canvas.pointer.w = $(this).val();
 			changeToolAction();
 		});
 		
@@ -1424,6 +1459,15 @@ function setHighModeEvent() {
 		eraseLine(canvas.previewCtx, canvas.action);
 		//drawLine(canvas.previewCtx, canvas.action);
 	}
+}
+
+function showPointer(e) {
+	if (!PC || !ls.guide) return;
+	var p = getPosition(e);
+	canvas.inputCtx.clearRect(0, 0, canvas.w, canvas.h);
+	canvas.inputCtx.beginPath();
+	canvas.inputCtx.arc(p.x, p.y, canvas.pointer.w/2, 0, Math.PI*2, false);
+	canvas.inputCtx.stroke();
 }
 
 function crBgcolorSlider() {
@@ -2928,7 +2972,7 @@ function initPictArea(x, y, w, h) {
 		//containment: 'parent'
 	});
 	*/
-	pictArea.pep();
+	pictArea.pep({shouldEase: false});
 	showPictPreview();
 	} catch(e) {
 		alert(e);

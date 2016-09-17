@@ -7,7 +7,8 @@ var LS_KEY = {
 	MODE: LS_KEY_PREFIX + 'mode',
 	FONT: LS_KEY_PREFIX + 'font',
 	PICT_MODE: LS_KEY_PREFIX + 'pictMode',
-	CORRECT_LV: LS_KEY_PREFIX + 'correctLv'
+	CORRECT_LV: LS_KEY_PREFIX + 'correctLv',
+	GUIDE: LS_KEY_PREFIX + 'guide'
 }
 var DEF_VERSION = '0.0.0';
 var DEF_MODE = MODE.M;
@@ -15,6 +16,7 @@ var DEF_FONT = [];
 var DEF_FONT_NUM = 5;
 var DEF_PICT_MODE = true;
 var DEF_CORRECT_LV = 0;
+var DEF_GUIDE = true;
 var TOOL = {
 	MARKER: 'marker',
 	CUSTOM: 'custom',
@@ -25,6 +27,7 @@ var TOOL = {
 	ERASER: 'eraser',
 	FILL: 'fill',
 	MOJI: 'moji',
+	SEL: 'sel',
 	PICT: 'pict',
 	SETTINGS: 'settings'
 }
@@ -71,6 +74,24 @@ var COMP = {
 	XO: 'xor',
 	DEF: 'source-over'
 }
+var BLEND_MODE = {
+	'normal': '通常',
+	'multiply': '乗算',
+	'screen': 'スクリーン',
+	'overlay': 'オーバーレイ',
+	'darken': '比較（暗）',
+	'lighten': '比較（明）',
+	'color-dodge': '覆い焼き（カラー）',
+	'color-burn': '焼き込み（カラー）',
+	'hard-light': 'ハードライト',
+	'soft-light': 'ソフトライト',
+	'difference': '差の絶対値',
+	'exclusion': '除外',
+	'hue': '色相',
+	'saturation': '彩度',
+	'color': 'カラー',
+	'luminosity': '光度',
+}
 var LINE_CAP = {B: 'butt', R: 'round', S: 'square'};
 var LINE_JOIN = {M: 'miter', R: 'round', B: 'bavel'};
 var MERGE_TYPE = {
@@ -84,13 +105,16 @@ var PENCIL_SIZE = 20;
 var MAX_LAYER = PC ? 12 : 4;
 var MAX_BGCOLOR_GRAD = 10;
 var MOVE_POINT_R = 100;
+var SEL_TYPE = {COPY: 0, CUT: 1};
+var SEL_BORDER = 2;
 
 var ls = {
 	version: loadStorage(LS_KEY.VERSION, false) || DEF_VERSION,
 	mode: loadStorage(LS_KEY.MODE, false) || DEF_MODE,
 	font: loadStorage(LS_KEY.FONT, true) || DEF_FONT,
-	pictMode: loadStorage(LS_KEY.PICT_MODE, false),
-	correctLv: loadStorage(LS_KEY.CORRECT_LV, false) || DEF_CORRECT_LV
+	pictMode: loadStorage(LS_KEY.PICT_MODE, true),
+	correctLv: loadStorage(LS_KEY.CORRECT_LV, false) || DEF_CORRECT_LV,
+	guide: loadStorage(LS_KEY.GUIDE, true)
 }
 var sketch = $('#sketch').sketch();
 var canvas = {
@@ -100,6 +124,7 @@ var canvas = {
 	tools: {},
 	marker: {
 		width: sketch.size,
+		//width: 8,
 		color: $("#colorPicker").spectrum('get').toRgbString(),
 		comp: COMP.SV,
 		cap: LINE_CAP.R,
@@ -109,7 +134,7 @@ var canvas = {
 	eraser: {
 		width: sketch.size,
 		color: 'rgba(0, 0, 0, 1)',
-		comp: COMP.SV,
+		comp: COMP.DO,
 		cap: LINE_CAP.R,
 		join: LINE_JOIN.R
 	},
@@ -130,7 +155,10 @@ var canvas = {
 	bgcolor: {el: [], grad: false},
 	w: getCanvasSize().w,
 	h: getCanvasSize().h,
-	scale: 1
+	scale: 1,
+	pointer: {
+		w: sketch.size
+	}
 };
 var tools = [TOOL.MARKER, TOOL.ERASER, TOOL.SPOIT];
 var redoList = [];
@@ -145,12 +173,18 @@ var icons = {
 	fillIcon: {file: 'nuri.png'},
 	mojiIcon: {file: 'moji.png'},
 	figureIcon: {file: 'figure.png'},
+	selIcon: {file: 'selection.png'},
 	pictIcon: {file: 'pict.png'},
 	settingsIcon: {file: 'settings.png'}
 };
 var clearImageData;
 var pict = {};
 var korabo = {};
+var rclick = false;
+var bTool;
+var aTool = TOOL.ERASER;
+
+var fool = false;
 
 function checkNewVersion(version, versionInfo) {
 	if(ls.version != version && versionInfo[version]){
@@ -183,6 +217,7 @@ function crUI() {
 	if (ls.mode >= MODE.M) crEraserUI();
 	if (ls.mode >= MODE.M) crSpoitUI();
 	if (ls.mode >= MODE.M) crMojiUI();
+	if (ls.mode >= MODE.M) crSelectionUI();
 	if (ls.mode >= MODE.M) crPictUI();
 	if (ls.mode >= MODE.M) crBgcolorUI();
 	if (ls.mode >= MODE.L) crSettingsUI();
@@ -233,6 +268,11 @@ function crUI() {
 		$('#sketch').before(tmpEl);
 		
 		canvas.inputEl = inputEl;
+		canvas.inputCtx = inputEl[0].getContext('2d');
+		canvas.inputCtx.lineWidth = 1;
+		canvas.inputCtx.lineCap = 'round';
+		canvas.inputCtx.lineJoin = 'round';
+		canvas.inputCtx.strokeStyle = '#666';
 		canvas.previewEl = previewEl;
 		canvas.previewCtx = previewEl[0].getContext('2d');
 		canvas.tmpEl = tmpEl;
@@ -291,7 +331,34 @@ function crUI() {
 			align: 'left'
 		});
 
-		layerTool.append(layerText, addLayerBtn, changeLayerDisplayBtn, changeLayerLeftBtn, changeLayerRightBtn, copyLayerBtn, mergeLayerBtn, deleteLayerBtn, layerPreviewBox);
+		var layerAlphaBox = $('<div>', {
+			id: 'layerAlphaBox'
+		});
+		var layerAlphaText = $('<label>', {id: 'layerAlphaText', text: '不透明度：100'});
+		var layerAlphaSlider = $('<div>', {id: 'layerAlphaSlider'}).slider({
+			min: 0,
+			max: 100,
+			value: 100,
+			slide: function(ev, ui) {
+				changeLayerAlpha(ui.value);
+			}
+		});
+		
+		var blendValueList = [];
+		var blendTextList = [];
+		for (var key in BLEND_MODE) {
+			blendValueList.push(key);
+			blendTextList.push(BLEND_MODE[key]);
+		}
+		var layerBlendSelect = crSelectEl('layerBlendSelect', 'ブレンドモード', blendValueList, blendTextList, 0);
+		layerBlendSelect.hide();
+	
+		layerAlphaBox.append(layerAlphaText, layerAlphaSlider, layerBlendSelect);
+		
+		layerTool.append(
+			layerText, addLayerBtn, changeLayerDisplayBtn, changeLayerLeftBtn, changeLayerRightBtn,
+			copyLayerBtn, mergeLayerBtn, deleteLayerBtn, layerAlphaBox, layerPreviewBox
+		);
 		if (PC) {
 			$('#_canvas').after(layerTool);
 		} else {
@@ -413,12 +480,13 @@ function crUI() {
 			canvas.path.interpolate = $('#pathSplineInterpolateSelect').val();
 			changeToolAction();
 		}).hide();
+		var pathEraseCheck = crCheckboxEl('pathEraseCheck', '消しゴム', false);
 		var pathCommitBtn = $('<input>', {
 			id: 'pathCommitBtn',
 			type: 'button',
 			value: '確定',
 		}).click(commitPath);
-		var pathMenu = $('<div>', {id: 'pathMenu'}).append(pathDrawModeSelect, pathAnchorSizeSelect, pathFreeExtractSelect, br(), pathTypeSelect, pathSplineInterpolateSelect, hr(), pathCommitBtn);
+		var pathMenu = $('<div>', {id: 'pathMenu'}).append(pathDrawModeSelect, pathAnchorSizeSelect, pathFreeExtractSelect, br(), pathTypeSelect, pathSplineInterpolateSelect, pathEraseCheck, hr(), pathCommitBtn);
 		$('body').append(pathMenu);
 	}
 	
@@ -456,7 +524,7 @@ function crUI() {
 		var eraserPressureValueList = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1];
 		var eraserPressureTextList = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 		var eraserPressureSelect = crSelectEl('eraserPressureSelect', '　圧力：', eraserPressureValueList, eraserPressureTextList, 9);
-		var eraserMenu = $('<div>', {id: 'eraserMenu'}).append(eraserCapSelect, eraserPressureSelect);
+		var eraserMenu = $('<div>', {id: 'eraserMenu'}).append(eraserCapSelect, eraserPressureSelect, br(), br());
 		$('body').append(eraserMenu);
 	}
 	
@@ -465,7 +533,7 @@ function crUI() {
 		var spoitLayerTextList = ['全レイヤ+背景', '全レイヤ', '選択中レイヤ+背景', '選択中レイヤ'];
 		var spoitLayerSelect = crSelectEl('spoitLayerSelect', '抽出先：', spoitLayerValueList, spoitLayerTextList, 0);
 		var spoitAlphaCheck = crCheckboxEl('spoitAlphaCheck', '透明度　', false);
-		var spoitMenu = $('<div>', {id: 'spoitMenu'}).append(spoitLayerSelect, spoitAlphaCheck);
+		var spoitMenu = $('<div>', {id: 'spoitMenu'}).append(spoitLayerSelect, spoitAlphaCheck, br(), br());
 		$('body').append(spoitMenu);
 	}
 	
@@ -495,13 +563,27 @@ function crUI() {
 		$('body').append(mojiMenu);
 	}
 	
+	function crSelectionUI() {
+		tools.push(TOOL.SEL);
+		var selTypeValueList = [SEL_TYPE.COPY, SEL_TYPE.CUT];
+		var selTypeTextList = ['コピー', '切り取り'];
+		var selTypeSelect = crSelectEl('selTypeSelect', '動作：', selTypeValueList, selTypeTextList, 0);
+		var selScaleLabel = crLabelEl('selScaleSpinner', '　拡大：');
+		var selScaleSpinner = $('<input>', {id: 'selScaleSpinner', value: '100'});
+		var selPasteCanselBtn = $('<input>', {id: 'selPasteCancelBtn', type: 'button', value: 'キャンセル'});
+		var selPasteBtn = $('<input>', {id: 'selPasteBtn', type: 'button', value: '貼り付け'});
+		//var selContinuePasteCheck = crCheckboxEl('selContinuePasteCheck', '連続貼り付け', false);
+		//var selMenu = $('<div>', {id: 'selMenu'}).append(selTypeSelect, selContinuePasteCheck, br(), selPasteBtn, selPasteCanselBtn);
+		var selMenu = $('<div>', {id: 'selMenu'}).append(selTypeSelect, selScaleLabel, selScaleSpinner, br(), selPasteBtn, selPasteCanselBtn);
+		$('body').append(selMenu);
+	}
+	
 	function crPictUI() {
 		if (PC) {
 			if (ls.pictMode == undefined) { 
 				ls.pictMode = confirm('画像貼り付け拡張機能をONにしますか？');
 				saveStorage(LS_KEY.PICT_MODE, ls.pictMode, false);
 			}
-			if (ls.pictMode == 'false') ls.pictMode = false;
 		} else {
 			ls.pictMode = false;
 			return;
@@ -551,7 +633,14 @@ function crUI() {
 		var modeValueList = [MODE.L, MODE.M, MODE.H];
 		var modeTextList = [MODE_NAME.L, MODE_NAME.M, MODE_NAME.H];
 		var modeSelect = crSelectEl('modeSelect', 'モード：', modeValueList, modeTextList, ls.mode);
-		var settingsMenu = $('<div>', {id: 'settingsMenu'}).append(modeSelect);
+
+		if (PC) {
+			if (ls.guide == undefined) ls.guide = DEF_GUIDE; 
+		} else {
+			ls.guide = false;
+		}
+		var guideCheck = crCheckboxEl('guideCheck', 'ポインター表示', ls.guide);
+		var settingsMenu = $('<div>', {id: 'settingsMenu'}).append(modeSelect, " ", PC ? guideCheck : "");
 		$('body').append(settingsMenu);
 	}
 	
@@ -596,6 +685,13 @@ function crUI() {
 
 function clickMenu(beforeTool, afterTool) {
 	commitAction(beforeTool);
+
+	if (afterTool == 'eraser') {
+		$('#psize').val(canvas.eraser.width);
+	} else {
+		$('#psize').val(canvas.marker.width);
+	}
+	canvas.pointer.w = $('#psize').val();
 	
 	switch (afterTool) {
 		case TOOL.PICT:
@@ -610,6 +706,8 @@ function commitAction(tool) {
 		case TOOL.PATH:
 			commitPath();
 			break;
+		case TOOL.SEL:
+			cancelSelPaste();
 		case TOOL.PICT:
 			clearPictCrop();
 			break;
@@ -621,25 +719,45 @@ function setEvent() {
 	setKeyDownEvent();
 	setLayerEvent();
 	
-	canvas.inputEl.bind('mousedown touchstart', function() {isOekakiDone = 1});
-	canvas.inputEl.bind('click dblclick mousedown mouseup mousemove mouseleave mouseout touchstart touchmove touchend touchcancel',
-		function(e) {
-			if (e.originalEvent && e.originalEvent.targetTouches) {
-				e.pageX = e.originalEvent.targetTouches[0].pageX;
-				e.pageY = e.originalEvent.targetTouches[0].pageY;
-			}
-			e.preventDefault();
-			canvas.tools[sketch.tool].onEvent(e);
+	canvas.inputEl.bind('mousedown touchstart', function(e){
+		//console.log('mousedown');
+		isOekakiDone = 1;
+		if (e.button == 2) {
+			rclick = true;
+			clickMenu(sketch.tool, aTool);
+			bTool = sketch.tool;
+			sketch.tool = aTool;
 		}
-	);
-	canvas.inputEl[0].addEventListener("touchend", function(e) {
-		if (e.originalEvent && e.originalEvent.targetTouches) {
-			e.pageX = e.originalEvent.targetTouches[0].pageX;
-			e.pageY = e.originalEvent.targetTouches[0].pageY;
-		}
-		e.preventDefault();
-		canvas.tools[sketch.tool].onEvent(e);
+		draw(e);
+		return false;
 	});
+	canvas.inputEl.bind('click dblclick mousemove touchmove',	function(e) {
+		//console.log('mousemove');
+		draw(e);
+		return false;
+	});
+	canvas.inputEl.bind('mouseleave mouseout mouseup touchcancel',	function(e) {
+		//console.log('mouseup');
+		draw(e);
+		if (rclick) {
+			rclick = false;
+			clickMenu(sketch.tool, bTool);
+			sketch.tool = bTool;
+		}
+		canvas.inputCtx.clearRect(0, 0, canvas.w, canvas.h);
+		return false;
+	});
+	canvas.inputEl[0].addEventListener('touchend', function(e) {
+		draw(e);
+		if (rclick) {
+			rclick = false;
+			clickMenu(bTool, sketch.tool)
+			sketch.tool = bTool;
+		}
+		canvas.inputCtx.clearRect(0, 0, canvas.w, canvas.h);
+		return false;
+	});
+	canvas.inputEl.bind('contextmenu', function() {return false;});
 	
 	$('#goBtn').click(function(){changeAction(redoList, canvas.layer.actions)});
 	
@@ -820,6 +938,22 @@ function setEvent() {
 		}
 	});
 	
+	$('#selPasteBtn').click(function() {
+		selPaste(canvas.layers[canvas.layerNum].ctx, canvas.action);
+	});
+	$('#selPasteCancelBtn').click(function() {
+		cancelSelPaste();
+	});
+	$('#selScaleSpinner').spinner({
+		min: 10,
+		max: 500,
+		step: 10,
+		numberFormat: 'P',
+		spin: function(event, ui) {
+			changeSelScale(ui.value/100);
+		}
+	});
+	
 	$('#pictModeCheck').click(function() {
 		saveStorage(LS_KEY.PICT_MODE, $(this).is(':checked'), false);
 		ls.pictMode = $(this).is(':checked');
@@ -832,7 +966,7 @@ function setEvent() {
 	});
 	
 	$('#modeSelect').change(function() {
-		saveStorage(LS_KEY.MODE, $('#modeSelect').val());
+		saveStorage(LS_KEY.MODE, $(this).val());
 		var modeChangeDialog = $('<div>', {id: 'modeChangeDialog', title: 'モード変更'});
 		modeChangeDialog.append($('<p>', {text: '適用する場合はページをリロードして再度ブックマークレットを起動してください。'}));
 		modeChangeDialog.dialog({
@@ -844,7 +978,11 @@ function setEvent() {
 			}
 		});
 	});
-	
+	$('#guideCheck').change(function() {
+		saveStorage(LS_KEY.GUIDE, $(this).is(':checked'), false);
+		ls.guide = $(this).is(':checked');
+	});
+		
 	canvas.tools.marker = {
 		onEvent: function(e) {
 			switch (e.type) {
@@ -1035,6 +1173,29 @@ function setEvent() {
 		}
 	};
 	
+	canvas.tools.sel = {
+		onEvent: function(e) {
+			switch (e.type) {
+				case 'mousedown':
+				case 'touchstart':
+					startSelPreview(e);
+					break;
+				case 'mouseup':
+				case 'mouseout':
+				case 'mouseleave':
+				case 'touchend':
+				case 'touchcancel':
+					if (canvas.previewStart) {
+						stopSelPreview(e);
+					}
+			}
+			if(canvas.previewStart) previewSel(e);
+		},
+		draw: function(ctx, action) {
+			drawSelPaste(ctx, action);
+		}
+	}
+
 	canvas.tools.pict = {onEvent: function() {return}}
 	canvas.tools.settings = {onEvent: function() {return}}
 	
@@ -1042,11 +1203,33 @@ function setEvent() {
 		commitAction(sketch.tool);
 		mergeCanvas(canvas.tmpCtx, MERGE_TYPE.ALL_LAYER_BG);
 		var imgData = canvas.tmpCtx.getImageData(0, 0, canvas.w, canvas.h);
-		sketch.context.putImageData(imgData, 0, 0);
-		clearCanvas(canvas.tmpCtx);
-		sketch.actions = canvas.layer.actions;
-		sketch.baseImageURL = canvas.layer.baseImageURL;
-		//canvas.layer.actions = [];
+		
+		if (isOekakiDone) {
+			var submitDialog = $('<div>', {id: 'submitDialog', title: '画像を投稿します'});
+			var submitLayer = crCanvasEl('submitLayer', '', '');
+			var submitCtx = submitLayer[0].getContext('2d');
+			submitCtx.putImageData(imgData, 0, 0);
+			submitDialog.append(submitLayer);
+			submitDialog.dialog({
+				modal: true,
+				width: parseInt(canvas.w) + 50,
+				buttons: {
+					'書き込む': function() {
+						sketch.context.putImageData(imgData, 0, 0);
+						clearCanvas(canvas.tmpCtx);
+						sketch.actions = canvas.layer.actions;
+						sketch.baseImageURL = canvas.layer.baseImageURL;
+						//canvas.layer.actions = [];
+						$('#form1').submit();
+						$(this).dialog('destroy');
+					},
+					'キャンセル': function() {
+						$(this).dialog('destroy');
+					}
+				}
+			});
+			return false;
+		}
 	});
 		
 	$(window).bind('beforeunload', function(e) {
@@ -1064,10 +1247,12 @@ function setEvent() {
 			showAlpha: true,
 			showPalette: true,
 			move: function(color) {
+				fool = false;
 				canvas.marker.color = color.toRgbString();
 				changeToolAction();
 			},
 			change: function(color) {
+				fool = false;
 				canvas.marker.color = color.toRgbString();
 				changeToolAction();
 			}
@@ -1075,8 +1260,12 @@ function setEvent() {
 		
 		$('#psize').unbind();
 		$('#psize').change(function() {
-			canvas.marker.width = $(this).val();
-			canvas.eraser.width = $(this).val();
+			if (sketch.tool == 'eraser') {
+				canvas.eraser.width = $(this).val();
+			} else {
+				canvas.marker.width = $(this).val();
+			}
+			canvas.pointer.w = $(this).val();
 			changeToolAction();
 		});
 		
@@ -1120,7 +1309,7 @@ function setEvent() {
 						$('canvas[id^=saveLayer]').removeClass('selected');
 					}
 				}
-			}), $('<br>'));
+			}), br());
 			for (var i in canvas.layers) {
 				var saveLayer = crCanvasEl('saveLayer'+i, 'layerPreview', '');
 				setCanvasSize(saveLayer[0], canvas.w, canvas.h, PREVIEW_SIZE);
@@ -1139,6 +1328,8 @@ function setEvent() {
 					}
 				});
 			}
+			saveDialog.append(br(), $('<font>', {color: 'red', size: 2, text: '※Chromeではダウンロードフォルダに画像ファイルがダウンロードされます。'}));
+			saveDialog.append(br(), $('<font>', {color: 'red', size: 2, text: '※Chrome以外ではダウンロードできないため、画像を右クリックし「名前をつけて画像を保存」してください。'}), br());
 			saveDialog.dialog({
 				modal: true,
 				width: parseInt(canvas.w) + 50,
@@ -1305,8 +1496,19 @@ function setEvent() {
 		$('#copyLayerBtn').click(copyLayer);
 		$('#mergeLayerBtn').click(mergeTwoLayer);
 		$('#deleteLayerBtn').click(function(){deleteLayer(true)});
+		$('#layerBlendSelect').change(function() {changeLayerBlend($(this).val())});
 	}
 
+}
+
+function draw(e) {
+	if (e.originalEvent && e.originalEvent.targetTouches) {
+		e.pageX = e.originalEvent.targetTouches[0].pageX;
+		e.pageY = e.originalEvent.targetTouches[0].pageY;
+	}
+	e.preventDefault();
+	showPointer(e);
+	canvas.tools[sketch.tool].onEvent(e);
 }
 
 function setLiteModeEvent() {
@@ -1426,6 +1628,15 @@ function setHighModeEvent() {
 	}
 }
 
+function showPointer(e) {
+	if (!PC || !ls.guide) return;
+	var p = getPosition(e);
+	canvas.inputCtx.clearRect(0, 0, canvas.w, canvas.h);
+	canvas.inputCtx.beginPath();
+	canvas.inputCtx.arc(p.x, p.y, canvas.pointer.w/2, 0, Math.PI*2, false);
+	canvas.inputCtx.stroke();
+}
+
 function crBgcolorSlider() {
 	canvas.bgcolor.values = [0, 100];
 	var color = sketch.bgcolor;
@@ -1478,7 +1689,9 @@ function crLayer() {
 		preview: {},
 		actions: [],
 		baseImageURL: '',
-		baseImageCache: ''
+		baseImageCache: '',
+		alpha: 100,
+		blend: 'normal'
 	}
 	$('#previewCanvas').before(layer);
 	setCanvasSize(layer[0], canvas.w, canvas.h, canvas.scale);
@@ -1508,7 +1721,10 @@ function selectLayer(num) {
 	canvas.layerNum = num;
 	canvas.layer = newLayer;
 	canvas.previewEl.css('z-index', num);
-
+	$('#layerAlphaSlider').slider({value: canvas.layer.alpha});
+	$('#layerBlendSelect').val(canvas.layer.blend);
+	changeLayerAlpha(canvas.layer.alpha);
+	changeLayerBlend(canvas.layer.blend);
 	redraw();
 }
 
@@ -1549,6 +1765,8 @@ function changeLayer(move) {
 	tmpLayer.previewClass = newLayer.preview.el[0].className;
 	tmpLayer.baseImageURL = newLayer.baseImageURL;
 	tmpLayer.baseImageCache = newLayer.baseImageCache;
+	tmpLayer.alpha = newLayer.alpha; 
+	tmpLayer.blend = newLayer.blend;
 	
 	newLayer.display = oldLayer.display;
 	newLayer.actions = oldLayer.actions;
@@ -1556,6 +1774,8 @@ function changeLayer(move) {
 	newLayer.preview.el[0].className = oldLayer.preview.el[0].className;
 	newLayer.baseImageURL = oldLayer.baseImageURL;
 	newLayer.baseImageCache = oldLayer.baseImageCache;
+	newLayer.alpha = oldLayer.alpha;
+	newLayer.blend = oldLayer.blend;
 	
 	oldLayer.display = tmpLayer.display;
 	oldLayer.actions = tmpLayer.actions;
@@ -1563,6 +1783,8 @@ function changeLayer(move) {
 	oldLayer.preview.el[0].className = tmpLayer.previewClass;
 	oldLayer.baseImageURL = tmpLayer.baseImageURL;
 	oldLayer.baseImageCache = tmpLayer.baseImageCache;
+	oldLayer.alpha = tmpLayer.alpha;
+	oldLayer.blend = tmpLayer.blend;
 	
 	selectLayer(oldNum);
 	selectLayer(newNum);
@@ -1608,6 +1830,23 @@ function redraw(ctx) {
 		}
 	});
 	updateLayerPreview();
+}
+
+function changeLayerAlpha(alpha) {
+	$('#layerAlphaText').text('不透明度：' + alpha);
+	var layer = canvas.layers[canvas.layerNum];
+	//layer.ctx.globalAlpha = alpha/100;
+	//redraw();
+	canvas.previewEl.css('opacity', alpha/100);
+	layer.el.css('opacity', alpha/100);
+	layer.alpha = alpha;
+}
+
+function changeLayerBlend(blend) {
+	var layer = canvas.layers[canvas.layerNum];
+	canvas.previewEl.css('mix-blend-mode', blend);
+	layer.el.css('mix-blend-mode', blend);
+	layer.blend = blend;
 }
 
 function changeToolAction() {
@@ -1672,12 +1911,25 @@ function previewMarker(e) {
 }
 
 function startDraw(ctx, action) {
+	var grad;
+	if (fool) {
+		var colors = ['#F66', '#F6F', '#66F', '#6F6', '#FF6', '#FA6', 
+									'#F66', '#F6F', '#66F', '#6F6', '#FF6', '#FA6', 
+									'#F66', '#F6F', '#66F', '#6F6', '#FF6', '#FA6',
+								 ,'#F66', '#F6F', '#66F', '#6F6', '#FF6', '#FA6'];
+		grad = ctx.createLinearGradient(0, 0, canvas.w, canvas.h);
+		for (var i in colors) {
+			var s = 1 / (colors.length-1) * i;
+			grad.addColorStop(s, colors[i]);
+		}
+	}
+	
 	var line = action.line;
 	ctx.globalCompositeOperation = line.comp;
 	ctx.lineJoin = line.join;
 	ctx.lineCap = line.cap;
 	ctx.lineWidth = line.width;
-	ctx.strokeStyle = canvas.style;
+	ctx.strokeStyle = fool ? grad : canvas.style;
 	ctx.beginPath();
 	ctx.moveTo(action.events[0].x, action.events[0].y);
 }
@@ -1866,15 +2118,18 @@ function drawArrow(ctx, x, y, r, rad) {
 */
 function startPath(e) {
 	var p = getPosition(e);
+	canvas.layer.el.css('visibility', 'hidden');
+	clearCanvas(canvas.previewCtx);
+	canvas.previewCtx.drawImage(canvas.layer.el[0], 0, 0);
 	
 	switch (canvas.path.state) {
 		case PATH_STATE.INIT:
 			if (canvas.path.mode == 'click') {
 				canvas.action = {
 					tool: sketch.tool,
-					//comp: canvas.marker.comp,
+					comp: $('#pathEraseCheck').is(':checked') ? canvas.eraser.comp : canvas.marker.comp,
 					width: canvas.marker.width,
-					color: canvas.marker.color,
+					color: $('#pathEraseCheck').is(':checked') ? 'rgb(0, 0, 0)' : canvas.marker.color,
 					path: {
 						type: $('#pathTypeSelect').val(),
 						ap: []
@@ -1885,9 +2140,9 @@ function startPath(e) {
 				canvas.previewStart = Date.now();
 				canvas.action = {
 					tool: sketch.tool,
-					//comp: canvas.marker.comp,
+					comp: $('#pathEraseCheck').is(':checked') ? canvas.eraser.comp : canvas.marker.comp,
 					width: canvas.marker.width,
-					color: canvas.marker.color,
+					color: $('#pathEraseCheck').is(':checked') ? 'rgb(0, 0, 0)' : canvas.marker.color,
 					path: {
 						type: $('#pathTypeSelect').val(),
 						op: [p]
@@ -1912,6 +2167,9 @@ function startPath(e) {
 }
 
 function startFreePath(ctx, action) {
+	//clearCanvas(ctx);
+	//ctx.drawImage(canvas.layer.el[0], 0, 0);
+	ctx.globalCompositeOperation = action.comp;
 	ctx.lineWidth = action.width;
 	ctx.strokeStyle = action.color;
 	ctx.beginPath();
@@ -1920,6 +2178,7 @@ function startFreePath(ctx, action) {
 
 function stopFreePath(ctx) {
 	ctx.stroke();
+	ctx.globalCompositeOperation = COMP.DEF;
 }
 
 function stopPath() {
@@ -1955,6 +2214,7 @@ function commitPath() {
 		clearCanvas(canvas.previewCtx);
 		canvas.layer.actions.push(canvas.action);
 		canvas.action = '';
+		canvas.layer.el.css('visibility', '');
 		updateLayerPreview();
 	}
 }
@@ -1985,12 +2245,14 @@ function previewPath(e) {
 				case PATH_STATE.MOVE:
 					canvas.action.path.ap[canvas.path.mp] = p;
 					clearCanvas(canvas.previewCtx);
+					canvas.previewCtx.drawImage(canvas.layer.el[0], 0, 0);
 					drawPath(canvas.previewCtx, canvas.action);
 					drawAnchors(canvas.previewCtx, canvas.action.path.ap);
 					checkPoint(canvas.previewCtx, p, canvas.action.path.ap, 'red');
 					break;
 				case PATH_STATE.NONE:
 					clearCanvas(canvas.previewCtx);
+					canvas.previewCtx.drawImage(canvas.layer.el[0], 0, 0);
 					drawPath(canvas.previewCtx, canvas.action);
 					drawAnchors(canvas.previewCtx, canvas.action.path.ap);
 					checkPoint(canvas.previewCtx, p, canvas.action.path.ap, 'red');
@@ -2006,9 +2268,9 @@ function previewPath(e) {
 			stopFreePath(canvas.previewCtx);
 			var action = {
 				tool: canvas.action.tool,
-				comp: canvas.marker.comp,
-				width: canvas.marker.width,
-				color: canvas.marker.color,
+				comp: canvas.action.comp,
+				width: canvas.action.width,
+				color: canvas.action.color,
 				path: {op:[p]}
 			}
 			startFreePath(canvas.previewCtx, action);
@@ -2039,7 +2301,7 @@ function checkInner(x, y, r, cx, cy) {
 }
 
 function drawPath(ctx, action) {
-	//ctx.globalCompositeOperation = action.comp;
+	ctx.globalCompositeOperation = action.comp;
 	ctx.lineCap = LINE_CAP.R;
 	ctx.lineJoin = LINE_JOIN.R;
 	ctx.lineWidth = action.width;
@@ -2052,7 +2314,7 @@ function drawPath(ctx, action) {
 	}
 	ctx.strokeStyle = action.color;
 	ctx.stroke();
-	//ctx.globalCompositeOperation = COMP.DEF;
+	ctx.globalCompositeOperation = COMP.DEF;
 }
 
 function drawAnchors(ctx, ap) {
@@ -2511,6 +2773,133 @@ function showEffectArea(ctx, e, size) {
 	ctx.strokeRect(parseInt(p.x - s), parseInt(p.y - s), size, size);
 }
 
+function startSelPreview(e) {
+	$('#moveCanvas').remove();
+	canvas.layers[canvas.layerNum].el.css('display', '');
+	
+	canvas.previewStart = Date.now();
+	var p = getPosition(e);
+	canvas.action = {
+		tool: sketch.tool,
+		type: $('#selTypeSelect').val(),
+		events: [{x: p.x, y: p.y}, {x: p.x, y: p.y}],
+		scale: $('#selScaleSpinner').spinner('value')/100
+	};
+}
+
+function stopSelPreview() {
+	canvas.previewStart = '';
+	clearCanvas(canvas.previewCtx);
+	var scale = canvas.action.scale;
+	
+	var nowLayer = canvas.layers[canvas.layerNum];
+	canvas.previewCtx.drawImage(nowLayer.el[0], 0, 0);
+	nowLayer.el.css('display', 'none');
+	
+	var offsetX = $('#sketch').offset().left;
+	var offsetY = $('#sketch').offset().top;
+	var selArea = getSelArea(canvas.action);
+	var imgData = nowLayer.ctx.getImageData(selArea.x, selArea.y, selArea.w, selArea.h);
+	var moveCanvas = $('<canvas>').attr({
+        id: 'moveCanvas',
+        width: selArea.w,
+        height: selArea.h,
+        style: 'border:' + SEL_BORDER + 'pt dotted #666; position:absolute; ' + 
+               'top: ' + (selArea.y + offsetY - SEL_BORDER)+ '; ' + 
+               'left: ' + (selArea.x + offsetX - SEL_BORDER) + '; ' + 
+               'width: ' + selArea.w*scale + '; ' + 
+               'height: ' + selArea.h*scale + '; ' + 
+               'z-index:' + MAX_LAYER+2 + '; cursor: move'
+    });
+	moveCanvas.pep({shouldEase: false});
+	var ctx = moveCanvas[0].getContext('2d');
+	ctx.putImageData(imgData, 0, 0);
+	$('#sketch').before(moveCanvas);
+	if (canvas.action.type == SEL_TYPE.CUT) {
+		canvas.previewCtx.clearRect(selArea.x, selArea.y, selArea.w, selArea.h);
+	}
+}
+
+function previewSel(e) {
+	var p = getPosition(e);
+	canvas.action.events[1] = p;
+	clearCanvas(canvas.previewCtx);
+	drawSelArea(canvas.previewCtx, canvas.action);
+}
+
+function drawSelArea(ctx, action) {
+	var e0 = action.events[0];
+	var e1 = action.events[1];
+
+	ctx.beginPath();
+	ctx.lineWidth = SEL_BORDER;
+	ctx.setLineDash([3, 3]);
+	ctx.strokeStyle = '#666';
+	ctx.strokeRect(e0.x, e0.y, e1.x-e0.x, e1.y-e0.y);
+	ctx.setLineDash([]);
+}
+
+function selPaste(ctx, action) {
+	var moveCanvas = $('#moveCanvas');
+	action.events[2] = {}
+	action.events[2].x = moveCanvas.offset().left - moveCanvas.next().offset().left + SEL_BORDER;
+	action.events[2].y = moveCanvas.offset().top - moveCanvas.next().offset().top + SEL_BORDER;
+	
+	drawSelPaste(ctx, action);
+	
+	//canvas.previewCtx.drawImage(moveCanvas[0], action.events[2].x, action.events[2].y, selArea.w, selArea.h);
+	//if (!$('#selContinuePasteCheck').is(':checked')) {
+		cancelSelPaste();
+	//}
+	canvas.layer.actions.push(action);
+}
+
+function cancelSelPaste() {
+	$('#moveCanvas').remove();
+	clearCanvas(canvas.previewCtx);
+	canvas.layers[canvas.layerNum].el.css('display', '');
+	updateLayerPreview();
+}
+
+function drawSelPaste(ctx, action) {
+	var nowLayer = canvas.layers[canvas.layerNum];
+	clearCanvas(canvas.tmpCtx);
+	var selArea = getSelArea(action);
+	//var imgData = nowLayer.ctx.getImageData(selArea.x, selArea.y, selArea.w, selArea.h);
+	//canvas.tmpCtx.putImageData(imgData, 0, 0);
+	canvas.tmpCtx.drawImage(nowLayer.el[0], selArea.x, selArea.y, selArea.w, selArea.h, 0, 0, selArea.w, selArea.h);
+	
+	if (action.type == SEL_TYPE.CUT) {
+		nowLayer.ctx.clearRect(selArea.x, selArea.y, selArea.w, selArea.h);
+	}
+
+	ctx.drawImage(canvas.tmpEl[0], 0, 0, selArea.w, selArea.h, action.events[2].x, action.events[2].y, selArea.w*action.scale, selArea.h*action.scale);
+}
+
+function getSelArea(action) {
+	var x1 = action.events[0].x;
+	var y1 = action.events[0].y;
+	var x2 = action.events[1].x;
+	var y2 = action.events[1].y;
+	var x = x1 < x2 ? x1 : x2;
+	var y = y1 < y2 ? y1 : y2;
+	var w = x1 < x2 ? x2 - x1 : x1 - x2;
+	var h = y1 < y2 ? y2 - y1 : y1 - y2;
+	return {x: x, y: y, w: w, h: h}
+}
+
+function changeSelScale(scale) {
+	var moveCanvas = $('#moveCanvas');
+	if (moveCanvas.length > 0) {
+		var selArea = getSelArea(canvas.action);
+		moveCanvas.css({
+			width: selArea.w * scale,
+			height: selArea.h * scale
+		});
+		canvas.action.scale = scale;
+	}
+}
+
 function crClearImageData() {
 	var s = 20;
 	var imageData = canvas.tmpCtx.createImageData(s, s);
@@ -2536,7 +2925,7 @@ function startEraserPreview(e) {
 		line: clone(canvas.eraser),
 		events: [{x: p.x, y: p.y}]
 	};
-	canvas.action.line.comp = COMP.DO;
+	//canvas.action.line.comp = COMP.DO;
 
 	clearCanvas(canvas.previewCtx);
 	canvas.previewCtx.drawImage(canvas.layer.el[0], 0, 0);
@@ -2578,10 +2967,20 @@ function mergeCanvas(ctx, type) {
 }
 
 function mergeLayer(ctx) {
+	var orgAlpha = ctx.globalAlpha;
+	var orgBlend = ctx.globalCompositeOperation;
 	for (var i in canvas.layers) {
 		var layer = canvas.layers[i];
-		if (layer.display) ctx.drawImage(layer.el[0], 0, 0);
+		var alpha = layer.alpha/100;
+		var blend = layer.blend;
+		if (layer.display) {
+			ctx.globalAlpha = alpha;
+			ctx.globalCompositeOperation = blend;
+			ctx.drawImage(layer.el[0], 0, 0);
+		}
 	}
+	ctx.globalAlpha = orgAlpha;
+	ctx.globalCompositeOperation = orgBlend;
 }
 
 function copyLayer() {
@@ -2598,7 +2997,13 @@ function mergeTwoLayer() {
 	var layerNum = canvas.layerNum;
 	var toLayer = canvas.layers[canvas.layerNum-1];
 	var fromLayer = canvas.layers[canvas.layerNum];
+	var orgAlpha = toLayer.ctx.globalAlpha;
+	var orgBlend = toLayer.ctx.globalCompositeOperation;
+	toLayer.ctx.globalAlpha = fromLayer.alpha/100;
+	toLayer.ctx.globalCompositeOperation = fromLayer.blend;
 	toLayer.ctx.drawImage(fromLayer.el[0], 0, 0);
+	toLayer.ctx.globalAlpha = orgAlpha;
+	toLayer.ctx.globalCompositeOperation = orgBlend;
 	var url = toLayer.el[0].toDataURL();
 	deleteLayer(false);
 	selectLayer(layerNum-1);
@@ -2928,7 +3333,7 @@ function initPictArea(x, y, w, h) {
 		//containment: 'parent'
 	});
 	*/
-	pictArea.pep();
+	pictArea.pep({shouldEase: false});
 	showPictPreview();
 	} catch(e) {
 		alert(e);

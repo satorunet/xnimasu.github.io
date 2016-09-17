@@ -9,9 +9,28 @@
 }
 
 .layerPreview {
-  margin: 2px;
+	margin: 2px;
   background-image: url(http://open2ch.net/image/oekaki/background.png);
   border: solid 2px #666;
+	cursor: pointer;
+}
+
+.layerPreviewDiv {
+	display: inline-block;
+}
+
+.layerNameDisp {
+	position: absolute;
+	margin: 4px;
+	cursor: text;
+	text-align: center;
+	background: rgba(255, 255, 255, 0.8);
+}
+
+.layerNameInput {
+	position: absolute;
+	margin: 4px;
+	display: none;
 }
 
 .pattern {
@@ -43,4 +62,16 @@
 .toolIcon {
 	width: 18px;
 	height: 18px;
+}
+
+.nub {
+	position: absolute;
+	width: 6px;
+	height: 6px;
+	margin: -5px;
+	background: #3F9FFF;
+	border: 2px solid white;
+	border-radius: 6px;
+	box-shadow: 0 2px 2px rgba(0, 0, 0 , 0.5);
+	cursor: move;
 }

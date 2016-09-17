@@ -7,7 +7,8 @@ var LS_KEY = {
 	MODE: LS_KEY_PREFIX + 'mode',
 	FONT: LS_KEY_PREFIX + 'font',
 	PICT_MODE: LS_KEY_PREFIX + 'pictMode',
-	CORRECT_LV: LS_KEY_PREFIX + 'correctLv'
+	CORRECT_LV: LS_KEY_PREFIX + 'correctLv',
+	GUIDE: LS_KEY_PREFIX + 'guide'
 }
 var DEF_VERSION = '0.0.0';
 var DEF_MODE = MODE.M;
@@ -15,6 +16,7 @@ var DEF_FONT = [];
 var DEF_FONT_NUM = 5;
 var DEF_PICT_MODE = true;
 var DEF_CORRECT_LV = 0;
+var DEF_GUIDE = true;
 var TOOL = {
 	MARKER: 'marker',
 	CUSTOM: 'custom',
@@ -25,6 +27,7 @@ var TOOL = {
 	ERASER: 'eraser',
 	FILL: 'fill',
 	MOJI: 'moji',
+	SEL: 'sel',
 	PICT: 'pict',
 	SETTINGS: 'settings'
 }
@@ -84,13 +87,16 @@ var PENCIL_SIZE = 20;
 var MAX_LAYER = PC ? 12 : 4;
 var MAX_BGCOLOR_GRAD = 10;
 var MOVE_POINT_R = 100;
+var SEL_TYPE = {COPY: 0, CUT: 1};
+var SEL_BORDER = 2;
 
 var ls = {
 	version: loadStorage(LS_KEY.VERSION, false) || DEF_VERSION,
 	mode: loadStorage(LS_KEY.MODE, false) || DEF_MODE,
 	font: loadStorage(LS_KEY.FONT, true) || DEF_FONT,
-	pictMode: loadStorage(LS_KEY.PICT_MODE, false),
-	correctLv: loadStorage(LS_KEY.CORRECT_LV, false) || DEF_CORRECT_LV
+	pictMode: loadStorage(LS_KEY.PICT_MODE, true),
+	correctLv: loadStorage(LS_KEY.CORRECT_LV, false) || DEF_CORRECT_LV,
+	guide: loadStorage(LS_KEY.GUIDE, true)
 }
 var sketch = $('#sketch').sketch();
 var canvas = {
@@ -130,7 +136,10 @@ var canvas = {
 	bgcolor: {el: [], grad: false},
 	w: getCanvasSize().w,
 	h: getCanvasSize().h,
-	scale: 1
+	scale: 1,
+	pointer: {
+		w: sketch.size
+	}
 };
 var tools = [TOOL.MARKER, TOOL.ERASER, TOOL.SPOIT];
 var redoList = [];
@@ -145,6 +154,7 @@ var icons = {
 	fillIcon: {file: 'nuri.png'},
 	mojiIcon: {file: 'moji.png'},
 	figureIcon: {file: 'figure.png'},
+	selIcon: {file: 'selection.png'},
 	pictIcon: {file: 'pict.png'},
 	settingsIcon: {file: 'settings.png'}
 };
@@ -183,6 +193,7 @@ function crUI() {
 	if (ls.mode >= MODE.M) crEraserUI();
 	if (ls.mode >= MODE.M) crSpoitUI();
 	if (ls.mode >= MODE.M) crMojiUI();
+	if (ls.mode >= MODE.M) crSelectionUI();
 	if (ls.mode >= MODE.M) crPictUI();
 	if (ls.mode >= MODE.M) crBgcolorUI();
 	if (ls.mode >= MODE.L) crSettingsUI();
@@ -233,6 +244,11 @@ function crUI() {
 		$('#sketch').before(tmpEl);
 		
 		canvas.inputEl = inputEl;
+		canvas.inputCtx = inputEl[0].getContext('2d');
+		canvas.inputCtx.lineWidth = 1;
+		canvas.inputCtx.lineCap = 'round';
+		canvas.inputCtx.lineJoin = 'round';
+		canvas.inputCtx.strokeStyle = '#666';
 		canvas.previewEl = previewEl;
 		canvas.previewCtx = previewEl[0].getContext('2d');
 		canvas.tmpEl = tmpEl;
@@ -495,13 +511,25 @@ function crUI() {
 		$('body').append(mojiMenu);
 	}
 	
+	function crSelectionUI() {
+		tools.push(TOOL.SEL);
+		var selTypeValueList = [SEL_TYPE.COPY, SEL_TYPE.CUT];
+		var selTypeTextList = ['コピー', '切り取り'];
+		var selTypeSelect = crSelectEl('selTypeSelect', '動作：', selTypeValueList, selTypeTextList, 0);
+		var selPasteCanselBtn = $('<input>', {id: 'selPasteCancelBtn', type: 'button', value: 'キャンセル'});
+		var selPasteBtn = $('<input>', {id: 'selPasteBtn', type: 'button', value: '貼り付け'});
+		//var selContinuePasteCheck = crCheckboxEl('selContinuePasteCheck', '連続貼り付け', false);
+		//var selMenu = $('<div>', {id: 'selMenu'}).append(selTypeSelect, selContinuePasteCheck, br(), selPasteBtn, selPasteCanselBtn);
+		var selMenu = $('<div>', {id: 'selMenu'}).append(selTypeSelect, br(), selPasteBtn, selPasteCanselBtn);
+		$('body').append(selMenu);
+	}
+	
 	function crPictUI() {
 		if (PC) {
 			if (ls.pictMode == undefined) { 
 				ls.pictMode = confirm('画像貼り付け拡張機能をONにしますか？');
 				saveStorage(LS_KEY.PICT_MODE, ls.pictMode, false);
 			}
-			if (ls.pictMode == 'false') ls.pictMode = false;
 		} else {
 			ls.pictMode = false;
 			return;
@@ -551,7 +579,14 @@ function crUI() {
 		var modeValueList = [MODE.L, MODE.M, MODE.H];
 		var modeTextList = [MODE_NAME.L, MODE_NAME.M, MODE_NAME.H];
 		var modeSelect = crSelectEl('modeSelect', 'モード：', modeValueList, modeTextList, ls.mode);
-		var settingsMenu = $('<div>', {id: 'settingsMenu'}).append(modeSelect);
+
+		if (PC) {
+			if (ls.guide == undefined) ls.guide = DEF_GUIDE; 
+		} else {
+			ls.guide = false;
+		}
+		var guideCheck = crCheckboxEl('guideCheck', 'ポインター表示', ls.guide);
+		var settingsMenu = $('<div>', {id: 'settingsMenu'}).append(modeSelect, " ", PC ? guideCheck : "");
 		$('body').append(settingsMenu);
 	}
 	
@@ -596,6 +631,13 @@ function crUI() {
 
 function clickMenu(beforeTool, afterTool) {
 	commitAction(beforeTool);
+
+	sketch.tool = afterTool;
+	if (afterTool == 'eraser') {
+		$('#psize').val(canvas.eraser.width).trigger('change');
+	} else {
+		$('#psize').val(canvas.marker.width).trigger('change');
+	}
 	
 	switch (afterTool) {
 		case TOOL.PICT:
@@ -610,6 +652,8 @@ function commitAction(tool) {
 		case TOOL.PATH:
 			commitPath();
 			break;
+		case TOOL.SEL:
+			cancelSelPaste();
 		case TOOL.PICT:
 			clearPictCrop();
 			break;
@@ -629,6 +673,7 @@ function setEvent() {
 				e.pageY = e.originalEvent.targetTouches[0].pageY;
 			}
 			e.preventDefault();
+			showPointer(e);
 			canvas.tools[sketch.tool].onEvent(e);
 		}
 	);
@@ -640,6 +685,8 @@ function setEvent() {
 		e.preventDefault();
 		canvas.tools[sketch.tool].onEvent(e);
 	});
+	canvas.inputEl.bind('mouseleave mouseout touchend touchcancel', function() {canvas.inputCtx.clearRect(0, 0, canvas.w, canvas.h)});
+
 	
 	$('#goBtn').click(function(){changeAction(redoList, canvas.layer.actions)});
 	
@@ -820,6 +867,13 @@ function setEvent() {
 		}
 	});
 	
+	$('#selPasteBtn').click(function() {
+		selPaste(canvas.layers[canvas.layerNum].ctx, canvas.action);
+	});
+	$('#selPasteCancelBtn').click(function() {
+		cancelSelPaste();
+	});
+	
 	$('#pictModeCheck').click(function() {
 		saveStorage(LS_KEY.PICT_MODE, $(this).is(':checked'), false);
 		ls.pictMode = $(this).is(':checked');
@@ -832,7 +886,7 @@ function setEvent() {
 	});
 	
 	$('#modeSelect').change(function() {
-		saveStorage(LS_KEY.MODE, $('#modeSelect').val());
+		saveStorage(LS_KEY.MODE, $(this).val());
 		var modeChangeDialog = $('<div>', {id: 'modeChangeDialog', title: 'モード変更'});
 		modeChangeDialog.append($('<p>', {text: '適用する場合はページをリロードして再度ブックマークレットを起動してください。'}));
 		modeChangeDialog.dialog({
@@ -844,7 +898,11 @@ function setEvent() {
 			}
 		});
 	});
-	
+	$('#guideCheck').change(function() {
+		saveStorage(LS_KEY.GUIDE, $(this).is(':checked'), false);
+		ls.guide = $(this).is(':checked');
+	});
+		
 	canvas.tools.marker = {
 		onEvent: function(e) {
 			switch (e.type) {
@@ -1035,6 +1093,29 @@ function setEvent() {
 		}
 	};
 	
+	canvas.tools.sel = {
+		onEvent: function(e) {
+			switch (e.type) {
+				case 'mousedown':
+				case 'touchstart':
+					startSelPreview(e);
+					break;
+				case 'mouseup':
+				case 'mouseout':
+				case 'mouseleave':
+				case 'touchend':
+				case 'touchcancel':
+					if (canvas.previewStart) {
+						stopSelPreview(e);
+					}
+			}
+			if(canvas.previewStart) previewSel(e);
+		}/*,
+		draw: function(ctx, action) {
+			drawSel(ctx, action);
+		}*/
+	}
+
 	canvas.tools.pict = {onEvent: function() {return}}
 	canvas.tools.settings = {onEvent: function() {return}}
 	
@@ -1075,8 +1156,12 @@ function setEvent() {
 		
 		$('#psize').unbind();
 		$('#psize').change(function() {
-			canvas.marker.width = $(this).val();
-			canvas.eraser.width = $(this).val();
+			if (sketch.tool == 'eraser') {
+				canvas.eraser.width = $(this).val();
+			} else {
+				canvas.marker.width = $(this).val();
+			}
+			canvas.pointer.w = $(this).val();
 			changeToolAction();
 		});
 		
@@ -1424,6 +1509,15 @@ function setHighModeEvent() {
 		eraseLine(canvas.previewCtx, canvas.action);
 		//drawLine(canvas.previewCtx, canvas.action);
 	}
+}
+
+function showPointer(e) {
+	if (!PC || !ls.guide) return;
+	var p = getPosition(e);
+	canvas.inputCtx.clearRect(0, 0, canvas.w, canvas.h);
+	canvas.inputCtx.beginPath();
+	canvas.inputCtx.arc(p.x, p.y, canvas.pointer.w/2, 0, Math.PI*2, false);
+	canvas.inputCtx.stroke();
 }
 
 function crBgcolorSlider() {
@@ -2511,6 +2605,107 @@ function showEffectArea(ctx, e, size) {
 	ctx.strokeRect(parseInt(p.x - s), parseInt(p.y - s), size, size);
 }
 
+function startSelPreview(e) {
+	$('#moveCanvas').remove();
+	canvas.layers[canvas.layerNum].el.css('display', '');
+	
+	canvas.previewStart = Date.now();
+	var p = getPosition(e);
+	canvas.action = {
+		tool: sketch.tool,
+		type: $('#selTypeSelect').val(),
+		events: [{x: p.x, y: p.y}, {x: p.x, y: p.y}]
+	};
+}
+
+function stopSelPreview() {
+	canvas.previewStart = '';
+	clearCanvas(canvas.previewCtx);
+	
+	var nowLayer = canvas.layers[canvas.layerNum];
+	canvas.previewCtx.drawImage(nowLayer.el[0], 0, 0);
+	nowLayer.el.css('display', 'none');
+	
+	var offsetX = $('#sketch').offset().left;
+	var offsetY = $('#sketch').offset().top;
+	var selArea = getSelArea(canvas.action);
+	var imgData = nowLayer.ctx.getImageData(selArea.x, selArea.y, selArea.w, selArea.h);
+	var moveCanvas = $('<canvas>').attr({
+        id: 'moveCanvas',
+        width: selArea.w,
+        height: selArea.h,
+        style: 'border:' + SEL_BORDER + 'pt dotted #666; position:absolute; ' + 
+               'top: ' + (selArea.y + offsetY - SEL_BORDER)+ '; ' + 
+               'left: ' + (selArea.x + offsetX - SEL_BORDER) + '; ' + 
+               'width: ' + selArea.w + '; ' + 
+               'height: ' + selArea.h + '; ' + 
+               'z-index:' + MAX_LAYER+2 + '; cursor: move'
+    });
+	moveCanvas.pep({shouldEase: false});
+	var ctx = moveCanvas[0].getContext('2d');
+	ctx.putImageData(imgData, 0, 0);
+	$('#sketch').before(moveCanvas);
+	if (canvas.action.type == SEL_TYPE.CUT) {
+		canvas.previewCtx.clearRect(selArea.x, selArea.y, selArea.w, selArea.h);
+	}
+	canvas.layer.actions.push(canvas.action);
+}
+
+function previewSel(e) {
+	var p = getPosition(e);
+	canvas.action.events[1] = p;
+	clearCanvas(canvas.previewCtx);
+	drawSelArea(canvas.previewCtx, canvas.action);
+}
+
+function drawSelArea(ctx, action) {
+	var e0 = action.events[0];
+	var e1 = action.events[1];
+
+	ctx.beginPath();
+	ctx.lineWidth = SEL_BORDER;
+	ctx.setLineDash([3, 3]);
+	ctx.strokeStyle = '#666';
+	ctx.strokeRect(e0.x, e0.y, e1.x-e0.x, e1.y-e0.y);
+	ctx.setLineDash([]);
+}
+
+function selPaste(ctx, action) {
+	var moveCanvas = $('#moveCanvas');
+	action.events[2] = {}
+	action.events[2].x = moveCanvas.offset().left - moveCanvas.parent().offset().left + SEL_BORDER;
+	action.events[2].y = moveCanvas.offset().top - moveCanvas.parent().offset().top + SEL_BORDER;
+	var selArea = getSelArea(canvas.action);
+	if (canvas.action.type == SEL_TYPE.CUT) {
+		canvas.layers[canvas.layerNum].ctx.clearRect(selArea.x, selArea.y, selArea.w, selArea.h);
+	}
+	ctx.drawImage(moveCanvas[0], action.events[2].x, action.events[2].y, selArea.w, selArea.h);
+	
+	//canvas.previewCtx.drawImage(moveCanvas[0], action.events[2].x, action.events[2].y, selArea.w, selArea.h);
+	//if (!$('#selContinuePasteCheck').is(':checked')) {
+		cancelSelPaste();
+	//}
+}
+
+function cancelSelPaste() {
+	$('#moveCanvas').remove();
+	clearCanvas(canvas.previewCtx);
+	canvas.layers[canvas.layerNum].el.css('display', '');
+	updateLayerPreview();
+}
+
+function getSelArea(action) {
+	var x1 = action.events[0].x;
+	var y1 = action.events[0].y;
+	var x2 = action.events[1].x;
+	var y2 = action.events[1].y;
+	var x = x1 < x2 ? x1 : x2;
+	var y = y1 < y2 ? y1 : y2;
+	var w = x1 < x2 ? x2 - x1 : x1 - x2;
+	var h = y1 < y2 ? y2 - y1 : y1 - y2;
+	return {x: x, y: y, w: w, h: h}
+}
+
 function crClearImageData() {
 	var s = 20;
 	var imageData = canvas.tmpCtx.createImageData(s, s);
@@ -2928,7 +3123,7 @@ function initPictArea(x, y, w, h) {
 		//containment: 'parent'
 	});
 	*/
-	pictArea.pep();
+	pictArea.pep({shouldEase: false});
 	showPictPreview();
 	} catch(e) {
 		alert(e);
